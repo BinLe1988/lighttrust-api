@@ -9,6 +9,17 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+type ReconcileInternalLog struct {
+	RequestID         string
+	UpstreamRequestID string
+	ChannelID         int
+	CreatedAt         int64
+	ModelName         string
+	PromptTokens      int
+	CompletionTokens  int
+	Other             string
+}
+
 type ReconcileConfig struct {
 	ID                   int64  `json:"id" gorm:"primaryKey"`
 	Name                 string `json:"name" gorm:"type:varchar(128);not null"`
@@ -213,6 +224,84 @@ func UpsertUpstreamCostBucket(record *UpstreamCostBucket) error {
 			"source_hash",
 			"ingestion_run_id",
 			"updated_at",
+		}),
+	}).Create(record).Error
+}
+
+func FindInternalLogsForReconcile(channelIDs []int, periodStart int64, periodEnd int64) ([]ReconcileInternalLog, error) {
+	if len(channelIDs) == 0 {
+		return nil, errors.New("reconciliation channel ids are required")
+	}
+	if periodStart >= periodEnd {
+		return nil, errors.New("invalid reconciliation log period")
+	}
+	var logs []ReconcileInternalLog
+	err := LOG_DB.Model(&Log{}).
+		Select("request_id, upstream_request_id, channel_id, created_at, model_name, prompt_tokens, completion_tokens, other").
+		Where("type = ? AND created_at >= ? AND created_at < ?", LogTypeConsume, periodStart, periodEnd).
+		Where("channel_id IN ?", channelIDs).
+		Where("request_id <> ?", "").
+		Order("created_at asc").
+		Find(&logs).Error
+	return logs, err
+}
+
+func FindUpstreamInvocationsForReconcile(
+	accountID string,
+	regions []string,
+	periodStart int64,
+	periodEnd int64,
+) ([]UpstreamInvocation, error) {
+	if accountID == "" {
+		return nil, errors.New("reconciliation account id is required")
+	}
+	if periodStart >= periodEnd {
+		return nil, errors.New("invalid reconciliation invocation period")
+	}
+	query := DB.Where("account_id = ? AND invoked_at >= ? AND invoked_at < ?", accountID, periodStart, periodEnd)
+	if len(regions) > 0 {
+		query = query.Where("region IN ?", regions)
+	}
+	var invocations []UpstreamInvocation
+	err := query.Order("invoked_at asc").Find(&invocations).Error
+	return invocations, err
+}
+
+func UpsertReconcileItem(record *ReconcileItem) error {
+	if record == nil {
+		return errors.New("reconciliation item is nil")
+	}
+	if record.ItemKey == "" {
+		return errors.New("reconciliation item key is required")
+	}
+	now := common.GetTimestamp()
+	if record.FirstObservedAt == 0 {
+		record.FirstObservedAt = now
+	}
+	record.LastObservedAt = now
+	return DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "item_key"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"config_id",
+			"internal_request_id",
+			"upstream_invocation_id",
+			"match_method",
+			"confidence",
+			"status",
+			"internal_model_id",
+			"upstream_model_id",
+			"internal_input_tokens",
+			"upstream_input_tokens",
+			"internal_output_tokens",
+			"upstream_output_tokens",
+			"upstream_cache_read_tokens",
+			"upstream_cache_write_tokens",
+			"allocated_cost",
+			"cost_kind",
+			"currency",
+			"maturity",
+			"last_observed_at",
+			"resolution",
 		}),
 	}).Create(record).Error
 }

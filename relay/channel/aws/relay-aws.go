@@ -107,6 +107,7 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 	if canCrossRegion {
 		awsModelId = awsModelCrossRegion(awsModelId, awsRegionPrefix)
 	}
+	info.UpstreamModelName = awsModelId
 
 	// init empty request.header
 	requestHeader := http.Header{}

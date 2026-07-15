@@ -161,8 +161,12 @@ type AccessDiagnostic struct {
 	Message    string
 }
 
-type Provider interface {
+type InvocationProvider interface {
 	PullInvocations(ctx context.Context, cursor Cursor) ([]Invocation, Cursor, error)
+}
+
+type Provider interface {
+	InvocationProvider
 	PullDailyCosts(ctx context.Context, period Period) ([]CostBucket, error)
 	PullAccountAdjustments(ctx context.Context, period Period) ([]AccountAdjustment, error)
 	CheckAccess(ctx context.Context) []AccessDiagnostic
