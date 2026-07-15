@@ -51,6 +51,8 @@ func TestMain(m *testing.M) {
 		&model.SystemTaskLock{},
 		&model.UpstreamInvocation{},
 		&model.ReconcileItem{},
+		&model.UpstreamCostBucket{},
+		&model.ReconcileDailySummary{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

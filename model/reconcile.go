@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -49,6 +50,59 @@ type ReconcileConfig struct {
 	UpdatedAt            int64  `json:"updated_at" gorm:"bigint;index;autoUpdateTime"`
 }
 
+func ListReconcileConfigs() ([]ReconcileConfig, error) {
+	var configs []ReconcileConfig
+	err := DB.Order("id asc").Find(&configs).Error
+	return configs, err
+}
+
+func GetReconcileConfig(id int64) (*ReconcileConfig, error) {
+	var config ReconcileConfig
+	err := DB.Where("id = ?", id).First(&config).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &config, err
+}
+
+func CreateReconcileConfig(config *ReconcileConfig) error {
+	if config == nil {
+		return errors.New("reconciliation config is nil")
+	}
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	return DB.Create(config).Error
+}
+
+func UpdateReconcileConfig(config *ReconcileConfig) error {
+	if config == nil || config.ID == 0 {
+		return errors.New("reconciliation config id is required")
+	}
+	existing, err := GetReconcileConfig(config.ID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return gorm.ErrRecordNotFound
+	}
+	if strings.TrimSpace(config.ExternalID) == "" {
+		config.ExternalID = existing.ExternalID
+	}
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	config.CreatedAt = existing.CreatedAt
+	return DB.Save(config).Error
+}
+
+func DeleteReconcileConfig(id int64) error {
+	if id == 0 {
+		return errors.New("reconciliation config id is required")
+	}
+	return DB.Delete(&ReconcileConfig{}, id).Error
+}
+
 type ReconcileRun struct {
 	ID               int64  `json:"id" gorm:"primaryKey"`
 	RunID            string `json:"run_id" gorm:"type:varchar(64);uniqueIndex"`
@@ -79,6 +133,8 @@ type UpstreamInvocation struct {
 	Operation             string `json:"operation" gorm:"type:varchar(64);index"`
 	ModelID               string `json:"model_id" gorm:"type:varchar(512);index"`
 	NormalizedModelID     string `json:"normalized_model_id" gorm:"type:varchar(255);index"`
+	ServiceTier           string `json:"service_tier" gorm:"type:varchar(64);index"`
+	RoutingType           string `json:"routing_type" gorm:"type:varchar(64);index"`
 	InputTokens           int64  `json:"input_tokens" gorm:"bigint"`
 	OutputTokens          int64  `json:"output_tokens" gorm:"bigint"`
 	CacheReadInputTokens  int64  `json:"cache_read_input_tokens" gorm:"bigint"`
@@ -180,6 +236,8 @@ func UpsertUpstreamInvocation(record *UpstreamInvocation) error {
 			"operation",
 			"model_id",
 			"normalized_model_id",
+			"service_tier",
+			"routing_type",
 			"input_tokens",
 			"output_tokens",
 			"cache_read_input_tokens",
@@ -302,6 +360,63 @@ func UpsertReconcileItem(record *ReconcileItem) error {
 			"maturity",
 			"last_observed_at",
 			"resolution",
+		}),
+	}).Create(record).Error
+}
+
+func FindCostBucketsForReconcile(
+	accountID string,
+	regions []string,
+	periodStart int64,
+	periodEnd int64,
+) ([]UpstreamCostBucket, error) {
+	if accountID == "" {
+		return nil, errors.New("reconciliation account id is required")
+	}
+	query := DB.Where(
+		"account_id = ? AND period_start < ? AND period_end > ?",
+		accountID,
+		periodEnd,
+		periodStart,
+	)
+	if len(regions) > 0 {
+		query = query.Where("region IN ?", regions)
+	}
+	var buckets []UpstreamCostBucket
+	err := query.Order("period_start asc").Find(&buckets).Error
+	return buckets, err
+}
+
+func UpsertReconcileDailySummary(record *ReconcileDailySummary) error {
+	if record == nil || record.SummaryKey == "" {
+		return errors.New("reconciliation daily summary key is required")
+	}
+	record.UpdatedAt = common.GetTimestamp()
+	return DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "summary_key"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"config_id",
+			"day",
+			"account_id",
+			"region",
+			"channel_id",
+			"model_id",
+			"operation",
+			"service_tier",
+			"routing_type",
+			"token_category",
+			"internal_requests",
+			"upstream_requests",
+			"internal_tokens",
+			"upstream_tokens",
+			"internal_estimated_cost",
+			"invocation_log_estimated_cost",
+			"cur_cost",
+			"absolute_delta",
+			"percentage_delta",
+			"unmatched_count",
+			"maturity",
+			"updated_at",
 		}),
 	}).Create(record).Error
 }

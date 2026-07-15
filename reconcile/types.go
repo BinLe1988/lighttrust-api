@@ -94,6 +94,8 @@ type Invocation struct {
 	Operation             string
 	ModelID               string
 	NormalizedModelID     string
+	ServiceTier           string
+	RoutingType           string
 	InputTokens           int64
 	OutputTokens          int64
 	CacheReadInputTokens  int64
@@ -145,6 +147,25 @@ type CostBucket struct {
 	Maturity      Maturity
 }
 
+func (c CostBucket) Validate() error {
+	if strings.TrimSpace(c.Provider) == "" || strings.TrimSpace(c.AccountID) == "" {
+		return errors.New("cost bucket provider and account id are required")
+	}
+	if err := c.Period.Validate(); err != nil {
+		return err
+	}
+	if c.UsageQuantity.IsNegative() {
+		return errors.New("cost bucket usage quantity cannot be negative")
+	}
+	if strings.TrimSpace(c.Currency) == "" {
+		return errors.New("cost bucket currency is required")
+	}
+	if strings.TrimSpace(c.SourceKey) == "" {
+		return errors.New("cost bucket source key is required")
+	}
+	return nil
+}
+
 type AccountAdjustment struct {
 	Provider  string
 	AccountID string
@@ -154,6 +175,13 @@ type AccountAdjustment struct {
 	Currency  string
 	SourceKey string
 }
+
+const (
+	AdjustmentCredit = "credit"
+	AdjustmentRefund = "refund"
+	AdjustmentTax    = "tax"
+	AdjustmentOther  = "other"
+)
 
 type AccessDiagnostic struct {
 	Capability string
@@ -165,9 +193,13 @@ type InvocationProvider interface {
 	PullInvocations(ctx context.Context, cursor Cursor) ([]Invocation, Cursor, error)
 }
 
+type CostProvider interface {
+	PullDailyCosts(ctx context.Context, period Period) ([]CostBucket, error)
+}
+
 type Provider interface {
 	InvocationProvider
-	PullDailyCosts(ctx context.Context, period Period) ([]CostBucket, error)
+	CostProvider
 	PullAccountAdjustments(ctx context.Context, period Period) ([]AccountAdjustment, error)
 	CheckAccess(ctx context.Context) []AccessDiagnostic
 }

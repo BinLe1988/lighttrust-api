@@ -46,6 +46,8 @@ func IngestReconcileInvocations(
 			Operation:             invocation.Operation,
 			ModelID:               invocation.ModelID,
 			NormalizedModelID:     invocation.NormalizedModelID,
+			ServiceTier:           invocation.ServiceTier,
+			RoutingType:           invocation.RoutingType,
 			InputTokens:           invocation.InputTokens,
 			OutputTokens:          invocation.OutputTokens,
 			CacheReadInputTokens:  invocation.CacheReadInputTokens,

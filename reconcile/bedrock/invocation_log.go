@@ -21,6 +21,7 @@ type invocationLogRecord struct {
 	RequestID       string            `json:"requestId"`
 	Operation       string            `json:"operation"`
 	ModelID         string            `json:"modelId"`
+	ServiceTier     string            `json:"serviceTier"`
 	RequestMetadata map[string]string `json:"requestMetadata"`
 	Identity        struct {
 		ARN string `json:"arn"`
@@ -135,6 +136,8 @@ func normalizeInvocationLogRecord(record invocationLogRecord, sourceLocation str
 		Operation:             record.Operation,
 		ModelID:               record.ModelID,
 		NormalizedModelID:     normalizeModelID(record.ModelID),
+		ServiceTier:           normalizeInvocationServiceTier(record.ServiceTier),
+		RoutingType:           invocationRoutingType(record.ModelID),
 		InputTokens:           record.Input.InputTokenCount,
 		OutputTokens:          record.Output.OutputTokenCount,
 		CacheReadInputTokens:  cacheReadTokens,
@@ -147,6 +150,25 @@ func normalizeInvocationLogRecord(record invocationLogRecord, sourceLocation str
 		return reconcile.Invocation{}, err
 	}
 	return invocation, nil
+}
+
+func normalizeInvocationServiceTier(serviceTier string) string {
+	serviceTier = strings.ToLower(strings.TrimSpace(serviceTier))
+	if serviceTier == "" || serviceTier == "default" {
+		return "standard"
+	}
+	return serviceTier
+}
+
+func invocationRoutingType(modelID string) string {
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	if strings.HasPrefix(modelID, "global.") {
+		return "cross_region_global"
+	}
+	if strings.HasPrefix(modelID, "us.") || strings.HasPrefix(modelID, "eu.") || strings.HasPrefix(modelID, "apac.") {
+		return "cross_region"
+	}
+	return "in_region"
 }
 
 func normalizeModelID(modelID string) string {
