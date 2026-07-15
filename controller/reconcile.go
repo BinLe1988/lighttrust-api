@@ -1,14 +1,21 @@
 package controller
 
 import (
+	"context"
+	"encoding/csv"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/reconcile"
+	bedrockreconcile "github.com/QuantumNous/new-api/reconcile/bedrock"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -151,6 +158,151 @@ func DeleteReconcileConfig(c *gin.Context) {
 	common.ApiSuccess(c, nil)
 }
 
+func DiagnoseReconcileConfig(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid reconciliation config id"})
+		return
+	}
+	config, err := model.GetReconcileConfig(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if config == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "reconciliation config not found"})
+		return
+	}
+	var regions []string
+	if err := common.UnmarshalJsonStr(config.Regions, &regions); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	end := time.Now().UTC().Truncate(time.Hour)
+	period := reconcile.Period{Start: end.Add(-time.Hour), End: end}
+	results := make(map[string][]reconcile.AccessDiagnostic, len(regions))
+	for _, region := range regions {
+		providerContext, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+		provider, providerErr := bedrockreconcile.NewProvider(providerContext, bedrockProviderConfig(config, region, period, "diagnostic"))
+		if providerErr != nil {
+			results[region] = []reconcile.AccessDiagnostic{{Capability: "assume_role", Available: false, Message: providerErr.Error()}}
+			cancel()
+			continue
+		}
+		results[region] = provider.CheckAccess(providerContext)
+		cancel()
+	}
+	recordManageAudit(c, "reconcile.diagnostic", map[string]interface{}{"id": config.ID, "name": config.Name})
+	common.ApiSuccess(c, results)
+}
+
+type reconcileRunRequest struct {
+	ConfigID    int64 `json:"config_id"`
+	PeriodStart int64 `json:"period_start"`
+	PeriodEnd   int64 `json:"period_end"`
+}
+
+func CreateReconcileRun(c *gin.Context) {
+	var request reconcileRunRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	config, period, err := validateReconcileRunRequest(request)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	task, created, err := service.EnqueueSystemTask(model.SystemTaskTypeBedrockReconcile, service.BedrockReconcileTaskPayload{
+		ConfigID: config.ID, PeriodStart: period.Start.Unix(), PeriodEnd: period.End.Unix(),
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !created {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "a Bedrock reconciliation task is already active", "data": task.ToResponse()})
+		return
+	}
+	recordManageAudit(c, "reconcile.run_create", map[string]interface{}{"id": config.ID, "name": config.Name, "task_id": task.TaskID})
+	common.ApiSuccess(c, task.ToResponse())
+}
+
+func RetryReconcileRun(c *gin.Context) {
+	run, err := model.GetReconcileRun(c.Param("run_id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if run == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "reconciliation run not found"})
+		return
+	}
+	request := reconcileRunRequest{ConfigID: run.ConfigID, PeriodStart: run.PeriodStart, PeriodEnd: run.PeriodEnd}
+	config, period, err := validateReconcileRunRequest(request)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	task, created, err := service.EnqueueSystemTask(model.SystemTaskTypeBedrockReconcile, service.BedrockReconcileTaskPayload{
+		ConfigID: config.ID, PeriodStart: period.Start.Unix(), PeriodEnd: period.End.Unix(),
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !created {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "a Bedrock reconciliation task is already active", "data": task.ToResponse()})
+		return
+	}
+	recordManageAudit(c, "reconcile.run_retry", map[string]interface{}{"run_id": run.RunID, "task_id": task.TaskID})
+	common.ApiSuccess(c, task.ToResponse())
+}
+
+func validateReconcileRunRequest(request reconcileRunRequest) (*model.ReconcileConfig, reconcile.Period, error) {
+	if request.ConfigID <= 0 {
+		return nil, reconcile.Period{}, errors.New("config_id is required")
+	}
+	config, err := model.GetReconcileConfig(request.ConfigID)
+	if err != nil {
+		return nil, reconcile.Period{}, err
+	}
+	if config == nil {
+		return nil, reconcile.Period{}, errors.New("reconciliation config not found")
+	}
+	period := reconcile.Period{Start: time.Unix(request.PeriodStart, 0), End: time.Unix(request.PeriodEnd, 0)}
+	if request.PeriodStart == 0 || request.PeriodEnd == 0 {
+		period = service.DefaultReconcilePeriod(config, time.Now())
+	}
+	if err := period.Validate(); err != nil {
+		return nil, reconcile.Period{}, err
+	}
+	if period.End.Sub(period.Start) > 31*24*time.Hour {
+		return nil, reconcile.Period{}, errors.New("reconciliation period cannot exceed 31 days")
+	}
+	return config, period, nil
+}
+
+func bedrockProviderConfig(config *model.ReconcileConfig, region string, period reconcile.Period, runID string) bedrockreconcile.ProviderConfig {
+	return bedrockreconcile.ProviderConfig{
+		Role: bedrockreconcile.RoleConfig{
+			RoleARN: config.RoleARN, ExternalID: config.ExternalID, Region: region,
+			SessionName: "lighttrust-" + common.NodeName + "-" + runID,
+		},
+		AccountID:           config.AccountID,
+		InvocationSource:    config.InvocationSource,
+		InvocationLogGroup:  config.InvocationLogGroup,
+		InvocationS3Bucket:  config.InvocationS3Bucket,
+		InvocationS3Prefix:  config.InvocationS3Prefix,
+		CostExplorerEnabled: config.CostExplorerEnabled,
+		Period:              period,
+		Athena: bedrockreconcile.AthenaCURConfig{
+			Database: config.AthenaDatabase, Table: config.AthenaTable, Workgroup: config.AthenaWorkgroup,
+			OutputLocation: config.AthenaOutputLocation, AccountID: config.AccountID, Region: region, Maturity: reconcile.MaturityProvisional,
+		},
+	}
+}
+
 func ListReconcileItems(c *gin.Context) {
 	filter, pageInfo, ok := reconcileResultFilter(c)
 	if !ok {
@@ -222,7 +374,117 @@ func writeReconcilePage(c *gin.Context, pageInfo *common.PageInfo, items any, to
 	common.ApiSuccess(c, pageInfo)
 }
 
+const maxSynchronousReconcileExportRows = 10000
+
+func ExportReconcileCSV(c *gin.Context) {
+	filter, _, ok := reconcileResultFilter(c)
+	if !ok {
+		return
+	}
+	kind := c.Query("type")
+	filter.Offset = 0
+	filter.Limit = 200
+	var rows [][]string
+	var err error
+	switch kind {
+	case "items":
+		rows, err = exportReconcileItems(filter)
+	case "daily":
+		rows, err = exportReconcileDaily(filter)
+	case "accounts":
+		rows, err = exportReconcileAccounts(filter)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "type must be items, daily, or accounts"})
+		return
+	}
+	if err != nil {
+		if errors.Is(err, errReconcileExportTooLarge) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "reconcile.export", map[string]interface{}{"config_id": filter.ConfigID, "type": kind, "count": len(rows) - 1})
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="reconciliation-%s-%d.csv"`, kind, filter.ConfigID))
+	writer := csv.NewWriter(c.Writer)
+	writer.WriteAll(rows)
+}
+
+var errReconcileExportTooLarge = errors.New("reconciliation export exceeds the 10000 row synchronous limit")
+
+func exportReconcileItems(filter model.ReconcileResultFilter) ([][]string, error) {
+	rows := [][]string{{"request_id", "status", "match_method", "confidence", "internal_model", "upstream_model", "internal_input_tokens", "upstream_input_tokens", "internal_output_tokens", "upstream_output_tokens", "cache_read_tokens", "cache_write_tokens", "maturity"}}
+	for {
+		items, total, err := model.ListReconcileItems(filter)
+		if err != nil {
+			return nil, err
+		}
+		if total > maxSynchronousReconcileExportRows {
+			return nil, errReconcileExportTooLarge
+		}
+		for _, item := range items {
+			rows = append(rows, []string{item.InternalRequestID, item.Status, item.MatchMethod, item.Confidence, item.InternalModelID, item.UpstreamModelID,
+				strconv.FormatInt(item.InternalInputTokens, 10), strconv.FormatInt(item.UpstreamInputTokens, 10), strconv.FormatInt(item.InternalOutputTokens, 10),
+				strconv.FormatInt(item.UpstreamOutputTokens, 10), strconv.FormatInt(item.UpstreamCacheReadTokens, 10), strconv.FormatInt(item.UpstreamCacheWriteTokens, 10), item.Maturity})
+		}
+		filter.Offset += len(items)
+		if len(items) == 0 || int64(filter.Offset) >= total {
+			return rows, nil
+		}
+	}
+}
+
+func exportReconcileDaily(filter model.ReconcileResultFilter) ([][]string, error) {
+	rows := [][]string{{"day", "account_id", "region", "channel_id", "model_id", "operation", "service_tier", "routing_type", "token_category", "upstream_requests", "upstream_tokens", "cur_cost", "absolute_delta", "percentage_delta", "maturity"}}
+	for {
+		items, total, err := model.ListReconcileDailySummaries(filter)
+		if err != nil {
+			return nil, err
+		}
+		if total > maxSynchronousReconcileExportRows {
+			return nil, errReconcileExportTooLarge
+		}
+		for _, item := range items {
+			rows = append(rows, []string{strconv.FormatInt(item.Day, 10), item.AccountID, item.Region, strconv.Itoa(item.ChannelID), item.ModelID, item.Operation,
+				item.ServiceTier, item.RoutingType, item.TokenCategory, strconv.FormatInt(item.UpstreamRequests, 10), strconv.FormatInt(item.UpstreamTokens, 10),
+				item.CURCost.String(), item.AbsoluteDelta.String(), item.PercentageDelta.String(), item.Maturity})
+		}
+		filter.Offset += len(items)
+		if len(items) == 0 || int64(filter.Offset) >= total {
+			return rows, nil
+		}
+	}
+}
+
+func exportReconcileAccounts(filter model.ReconcileResultFilter) ([][]string, error) {
+	rows := [][]string{{"period_start", "period_end", "account_id", "gross_cost", "credits", "refunds", "tax_and_adjustments", "net_cost", "attributed_cost", "unattributed_cost", "unexplained_delta", "currency", "maturity"}}
+	for {
+		items, total, err := model.ListReconcileAccountSummaries(filter)
+		if err != nil {
+			return nil, err
+		}
+		if total > maxSynchronousReconcileExportRows {
+			return nil, errReconcileExportTooLarge
+		}
+		for _, item := range items {
+			rows = append(rows, []string{strconv.FormatInt(item.PeriodStart, 10), strconv.FormatInt(item.PeriodEnd, 10), item.AccountID,
+				item.GrossCost.String(), item.Credits.String(), item.Refunds.String(), item.TaxAndAdjustments.String(), item.NetCost.String(),
+				item.AttributedCost.String(), item.UnattributedCost.String(), item.UnexplainedDelta.String(), item.Currency, item.Maturity})
+		}
+		filter.Offset += len(items)
+		if len(items) == 0 || int64(filter.Offset) >= total {
+			return rows, nil
+		}
+	}
+}
+
 func (request reconcileConfigRequest) toModel() (*model.ReconcileConfig, error) {
+	request.Name = strings.TrimSpace(request.Name)
+	request.AccountID = strings.TrimSpace(request.AccountID)
+	request.RoleARN = strings.TrimSpace(request.RoleARN)
+	request.ExternalID = strings.TrimSpace(request.ExternalID)
 	if request.Provider == "" {
 		request.Provider = reconcile.ProviderBedrock
 	}
@@ -231,6 +493,21 @@ func (request reconcileConfigRequest) toModel() (*model.ReconcileConfig, error) 
 	}
 	if request.InvocationSource != "cloudwatch" && request.InvocationSource != "s3" {
 		return nil, errors.New("invocation_source must be cloudwatch or s3")
+	}
+	if len(request.AccountID) != 12 || strings.Trim(request.AccountID, "0123456789") != "" {
+		return nil, errors.New("account_id must contain exactly 12 digits")
+	}
+	if !strings.HasPrefix(request.RoleARN, "arn:") || !strings.Contains(request.RoleARN, ":iam::"+request.AccountID+":role/") {
+		return nil, errors.New("role_arn must be an IAM role in the configured account")
+	}
+	if request.InvocationSource == "cloudwatch" && strings.TrimSpace(request.InvocationLogGroup) == "" {
+		return nil, errors.New("invocation_log_group is required for CloudWatch")
+	}
+	if request.InvocationSource == "s3" && strings.TrimSpace(request.InvocationS3Bucket) == "" {
+		return nil, errors.New("invocation_s3_bucket is required for S3")
+	}
+	if request.AthenaDatabase == "" || request.AthenaTable == "" || request.AthenaWorkgroup == "" || !strings.HasPrefix(request.AthenaOutputLocation, "s3://") {
+		return nil, errors.New("Athena database, table, workgroup, and s3 output location are required")
 	}
 	if len(request.Regions) == 0 || len(request.ChannelMappings) == 0 {
 		return nil, errors.New("regions and channel_mappings are required")
@@ -251,6 +528,26 @@ func (request reconcileConfigRequest) toModel() (*model.ReconcileConfig, error) 
 			if channelID <= 0 {
 				return nil, errors.New("channel ids must be positive")
 			}
+		}
+	}
+	allChannelIDs := make([]int, 0)
+	for _, channelIDs := range request.ChannelMappings {
+		allChannelIDs = append(allChannelIDs, channelIDs...)
+	}
+	channels, err := model.GetChannelsByIds(allChannelIDs)
+	if err != nil {
+		return nil, err
+	}
+	validChannels := make(map[int]bool, len(channels))
+	for _, channel := range channels {
+		if channel.Type != constant.ChannelTypeAws {
+			return nil, fmt.Errorf("channel %d is not an AWS Bedrock channel", channel.Id)
+		}
+		validChannels[channel.Id] = true
+	}
+	for _, channelID := range allChannelIDs {
+		if !validChannels[channelID] {
+			return nil, fmt.Errorf("channel %d does not exist", channelID)
 		}
 	}
 	regions, err := common.Marshal(request.Regions)

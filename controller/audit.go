@@ -47,6 +47,10 @@ var auditContentTemplates = map[string]string{
 	"reconcile.config_create":    "Created reconciliation configuration ${name} (ID: ${id})",
 	"reconcile.config_update":    "Updated reconciliation configuration ${name} (ID: ${id})",
 	"reconcile.config_delete":    "Deleted reconciliation configuration (ID: ${id})",
+	"reconcile.diagnostic":       "Ran reconciliation access diagnostics for ${name} (ID: ${id})",
+	"reconcile.run_create":       "Started reconciliation for ${name} (ID: ${id}, task: ${task_id})",
+	"reconcile.run_retry":        "Retried reconciliation run ${run_id} (task: ${task_id})",
+	"reconcile.export":           "Exported ${count} ${type} reconciliation rows for config ${config_id}",
 
 	"redemption.create": "Created ${count} redemption codes named ${name} (${quota} each)",
 

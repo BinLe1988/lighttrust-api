@@ -37,6 +37,13 @@ func IngestReconcileCosts(
 	if err != nil {
 		return CostIngestionCounters{}, err
 	}
+	return PersistReconcileCosts(buckets, runID)
+}
+
+func PersistReconcileCosts(buckets []reconcile.CostBucket, runID string) (CostIngestionCounters, error) {
+	if runID == "" {
+		return CostIngestionCounters{}, errors.New("reconciliation run id is required")
+	}
 	counters := CostIngestionCounters{Scanned: len(buckets)}
 	for _, bucket := range buckets {
 		if err := bucket.Validate(); err != nil {

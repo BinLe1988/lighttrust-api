@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/reconcile"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -119,6 +120,44 @@ type ReconcileRun struct {
 	LockedBy         string `json:"locked_by" gorm:"type:varchar(128);index"`
 	CreatedAt        int64  `json:"created_at" gorm:"bigint;index;autoCreateTime"`
 	UpdatedAt        int64  `json:"updated_at" gorm:"bigint;index;autoUpdateTime"`
+}
+
+func CreateReconcileRun(record *ReconcileRun) error {
+	if record == nil || record.RunID == "" || record.ConfigID <= 0 {
+		return errors.New("reconciliation run id and config id are required")
+	}
+	return DB.Create(record).Error
+}
+
+func GetReconcileRun(runID string) (*ReconcileRun, error) {
+	var record ReconcileRun
+	err := DB.Where("run_id = ?", runID).First(&record).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &record, err
+}
+
+func FinishReconcileRun(runID string, status reconcile.RunStatus, maturity reconcile.Maturity, counters any, runErr error) error {
+	counterJSON, err := common.Marshal(counters)
+	if err != nil {
+		return err
+	}
+	errorMessage := ""
+	if runErr != nil {
+		errorMessage = runErr.Error()
+	}
+	result := DB.Model(&ReconcileRun{}).Where("run_id = ?", runID).Updates(map[string]any{
+		"status": string(status), "maturity": string(maturity), "counters": string(counterJSON),
+		"error": errorMessage, "updated_at": common.GetTimestamp(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 type UpstreamInvocation struct {

@@ -22,6 +22,39 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(bedrockReconcileHandler{})
+}
+
+type bedrockReconcileHandler struct{}
+
+func (bedrockReconcileHandler) Type() string { return model.SystemTaskTypeBedrockReconcile }
+
+func (bedrockReconcileHandler) Enabled() bool {
+	return common.GetEnvOrDefaultBool("BEDROCK_RECONCILIATION_TASK_ENABLED", false)
+}
+
+func (bedrockReconcileHandler) Interval() time.Duration {
+	minutes := common.GetEnvOrDefault("BEDROCK_RECONCILIATION_TASK_INTERVAL_MINUTES", 360)
+	if minutes < 15 {
+		minutes = 15
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
+func (bedrockReconcileHandler) NewPayload() any { return service.BedrockReconcileTaskPayload{} }
+
+func (bedrockReconcileHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	payload := service.BedrockReconcileTaskPayload{}
+	if err := task.DecodePayload(&payload); err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
+	result, err := service.RunBedrockReconcileTask(ctx, payload, task.TaskID)
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, result, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, result, nil)
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and
