@@ -138,6 +138,22 @@ func GetReconcileRun(runID string) (*ReconcileRun, error) {
 	return &record, err
 }
 
+func UpdateReconcileRunCursor(runID string, cursor string) error {
+	if strings.TrimSpace(runID) == "" {
+		return errors.New("reconciliation run id is required")
+	}
+	result := DB.Model(&ReconcileRun{}).Where("run_id = ?", runID).Updates(map[string]any{
+		"cursor": cursor, "updated_at": common.GetTimestamp(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func FinishReconcileRun(runID string, status reconcile.RunStatus, maturity reconcile.Maturity, counters any, runErr error) error {
 	counterJSON, err := common.Marshal(counters)
 	if err != nil {

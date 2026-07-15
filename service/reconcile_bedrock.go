@@ -22,9 +22,10 @@ type BedrockReconcileRunResult struct {
 }
 
 type BedrockReconcileTaskPayload struct {
-	ConfigID    int64 `json:"config_id,omitempty"`
-	PeriodStart int64 `json:"period_start,omitempty"`
-	PeriodEnd   int64 `json:"period_end,omitempty"`
+	ConfigID    int64  `json:"config_id,omitempty"`
+	PeriodStart int64  `json:"period_start,omitempty"`
+	PeriodEnd   int64  `json:"period_end,omitempty"`
+	ResumeRunID string `json:"resume_run_id,omitempty"`
 }
 
 func RunBedrockReconcileTask(ctx context.Context, payload BedrockReconcileTaskPayload, taskID string) (map[int64]BedrockReconcileRunResult, error) {
@@ -48,7 +49,18 @@ func RunBedrockReconcileTask(ctx context.Context, payload BedrockReconcileTaskPa
 			period = DefaultReconcilePeriod(config, time.Now())
 		}
 		runID := fmt.Sprintf("%s-%d", taskID, config.ID)
-		runResult, runErr := RunBedrockReconciliation(ctx, config.ID, period, runID)
+		resumeCursor := ""
+		if payload.ResumeRunID != "" {
+			previousRun, previousErr := model.GetReconcileRun(payload.ResumeRunID)
+			if previousErr != nil {
+				return result, previousErr
+			}
+			if previousRun == nil || previousRun.ConfigID != config.ID {
+				return result, errors.New("reconciliation resume run not found")
+			}
+			resumeCursor = previousRun.Cursor
+		}
+		runResult, runErr := runBedrockReconciliation(ctx, config.ID, period, runID, resumeCursor)
 		result[config.ID] = runResult
 		if runErr != nil {
 			return result, fmt.Errorf("%s: %w", ReconcileRunLabel(config.ID, period), runErr)
@@ -81,6 +93,10 @@ func NewBedrockReconcileProvider(ctx context.Context, config *model.ReconcileCon
 }
 
 func RunBedrockReconciliation(ctx context.Context, configID int64, period reconcile.Period, runID string) (result BedrockReconcileRunResult, runErr error) {
+	return runBedrockReconciliation(ctx, configID, period, runID, "")
+}
+
+func runBedrockReconciliation(ctx context.Context, configID int64, period reconcile.Period, runID string, resumeCursor string) (result BedrockReconcileRunResult, runErr error) {
 	if err := period.Validate(); err != nil {
 		return result, err
 	}
@@ -101,7 +117,8 @@ func RunBedrockReconciliation(ctx context.Context, configID int64, period reconc
 	}
 	record := &model.ReconcileRun{
 		RunID: runID, ConfigID: configID, Source: "bedrock_pipeline", Status: string(reconcile.RunStatusRunning),
-		Maturity: string(reconcile.MaturityProvisional), PeriodStart: period.Start.Unix(), PeriodEnd: period.End.Unix(), LockedBy: common.NodeName,
+		Maturity: string(reconcile.MaturityProvisional), PeriodStart: period.Start.Unix(), PeriodEnd: period.End.Unix(),
+		Cursor: resumeCursor, LockedBy: common.NodeName,
 	}
 	if err := model.CreateReconcileRun(record); err != nil {
 		return result, err
@@ -119,6 +136,12 @@ func RunBedrockReconciliation(ctx context.Context, configID int64, period reconc
 	var adjustmentProvider *bedrockreconcile.AWSProvider
 	result.Metrics = make(map[string]bedrockreconcile.CompletenessSummary, len(regions))
 	channelIDs := make([]int, 0)
+	cursors := make(map[string]reconcile.Cursor)
+	if resumeCursor != "" {
+		if err := common.UnmarshalJsonStr(resumeCursor, &cursors); err != nil {
+			return result, fmt.Errorf("decode reconciliation resume cursor: %w", err)
+		}
+	}
 	for _, region := range regions {
 		channelIDs = append(channelIDs, mappings[region]...)
 		provider, providerErr := NewBedrockReconcileProvider(ctx, config, region, period, runID)
@@ -128,7 +151,7 @@ func RunBedrockReconciliation(ctx context.Context, configID int64, period reconc
 		if adjustmentProvider == nil {
 			adjustmentProvider = provider
 		}
-		cursor := reconcile.Cursor{}
+		cursor := cursors[region]
 		for page := 0; page < 1000; page++ {
 			counters, nextCursor, ingestErr := IngestReconcileInvocations(ctx, provider, cursor, runID)
 			if ingestErr != nil {
@@ -137,6 +160,14 @@ func RunBedrockReconciliation(ctx context.Context, configID int64, period reconc
 			result.Invocation.Scanned += counters.Scanned
 			result.Invocation.Upserted += counters.Upserted
 			cursor = nextCursor
+			cursors[region] = cursor
+			encodedCursor, encodeErr := common.Marshal(cursors)
+			if encodeErr != nil {
+				return result, encodeErr
+			}
+			if persistErr := model.UpdateReconcileRunCursor(runID, string(encodedCursor)); persistErr != nil {
+				return result, persistErr
+			}
 			if bedrockreconcile.InvocationCursorComplete(cursor) {
 				break
 			}

@@ -127,3 +127,20 @@ func TestUpsertAndListReconcileAccountSummary(t *testing.T) {
 	require.Len(t, items, 1)
 	assert.True(t, items[0].NetCost.Equal(decimal.RequireFromString("1.50")))
 }
+
+func TestUpdateReconcileRunCursorPersistsResumeState(t *testing.T) {
+	require.NoError(t, DB.Exec("DELETE FROM reconcile_runs").Error)
+	t.Cleanup(func() { require.NoError(t, DB.Exec("DELETE FROM reconcile_runs").Error) })
+
+	run := &ReconcileRun{
+		RunID: "cursor-run", ConfigID: 9, Source: "bedrock_pipeline",
+		Status: "running", PeriodStart: 100, PeriodEnd: 200,
+	}
+	require.NoError(t, CreateReconcileRun(run))
+	require.NoError(t, UpdateReconcileRunCursor(run.RunID, `{"us-east-1":{"value":"page-2"}}`))
+
+	stored, err := GetReconcileRun(run.RunID)
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+	assert.JSONEq(t, `{"us-east-1":{"value":"page-2"}}`, stored.Cursor)
+}

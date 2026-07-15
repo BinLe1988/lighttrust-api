@@ -245,7 +245,7 @@ func RetryReconcileRun(c *gin.Context) {
 		return
 	}
 	task, created, err := service.EnqueueSystemTask(model.SystemTaskTypeBedrockReconcile, service.BedrockReconcileTaskPayload{
-		ConfigID: config.ID, PeriodStart: period.Start.Unix(), PeriodEnd: period.End.Unix(),
+		ConfigID: config.ID, PeriodStart: period.Start.Unix(), PeriodEnd: period.End.Unix(), ResumeRunID: run.RunID,
 	})
 	if err != nil {
 		common.ApiError(c, err)
