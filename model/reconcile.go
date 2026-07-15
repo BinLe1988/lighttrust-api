@@ -421,6 +421,145 @@ func UpsertReconcileDailySummary(record *ReconcileDailySummary) error {
 	}).Create(record).Error
 }
 
+func UpsertReconcileAccountSummary(record *ReconcileAccountSummary) error {
+	if record == nil || record.SummaryKey == "" {
+		return errors.New("reconciliation account summary key is required")
+	}
+	record.UpdatedAt = common.GetTimestamp()
+	return DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "summary_key"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"config_id", "period_start", "period_end", "account_id",
+			"gross_cost", "credits", "refunds", "tax_and_adjustments", "net_cost",
+			"attributed_cost", "unattributed_cost", "unexplained_delta",
+			"currency", "maturity", "updated_at",
+		}),
+	}).Create(record).Error
+}
+
+type ReconcileResultFilter struct {
+	ConfigID  int64
+	Status    string
+	Maturity  string
+	RequestID string
+	ModelID   string
+	Region    string
+	ChannelID int
+	Start     int64
+	End       int64
+	Offset    int
+	Limit     int
+}
+
+func ListReconcileItems(filter ReconcileResultFilter) ([]ReconcileItem, int64, error) {
+	query := DB.Model(&ReconcileItem{}).Where("reconcile_items.config_id = ?", filter.ConfigID)
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
+	if filter.Maturity != "" {
+		query = query.Where("maturity = ?", filter.Maturity)
+	}
+	if filter.RequestID != "" {
+		query = query.Where("internal_request_id = ?", filter.RequestID)
+	}
+	if filter.ModelID != "" {
+		query = query.Where("internal_model_id = ? OR upstream_model_id = ?", filter.ModelID, filter.ModelID)
+	}
+	if filter.ChannelID > 0 {
+		query = query.Joins("JOIN upstream_invocations ON upstream_invocations.id = reconcile_items.upstream_invocation_id").
+			Where("upstream_invocations.channel_id = ?", filter.ChannelID)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var items []ReconcileItem
+	err := query.Order("reconcile_items.last_observed_at desc, reconcile_items.id desc").Offset(filter.Offset).Limit(boundedReconcileLimit(filter.Limit)).Find(&items).Error
+	return items, total, err
+}
+
+func ListReconcileDailySummaries(filter ReconcileResultFilter) ([]ReconcileDailySummary, int64, error) {
+	query := DB.Model(&ReconcileDailySummary{}).Where("config_id = ?", filter.ConfigID)
+	if filter.Maturity != "" {
+		query = query.Where("maturity = ?", filter.Maturity)
+	}
+	if filter.ModelID != "" {
+		query = query.Where("model_id = ?", filter.ModelID)
+	}
+	if filter.Region != "" {
+		query = query.Where("region = ?", filter.Region)
+	}
+	if filter.ChannelID > 0 {
+		query = query.Where("channel_id = ?", filter.ChannelID)
+	}
+	if filter.Start > 0 {
+		query = query.Where("day >= ?", filter.Start)
+	}
+	if filter.End > 0 {
+		query = query.Where("day < ?", filter.End)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var summaries []ReconcileDailySummary
+	err := query.Order("day desc, id desc").Offset(filter.Offset).Limit(boundedReconcileLimit(filter.Limit)).Find(&summaries).Error
+	return summaries, total, err
+}
+
+func ListReconcileAccountSummaries(filter ReconcileResultFilter) ([]ReconcileAccountSummary, int64, error) {
+	query := DB.Model(&ReconcileAccountSummary{}).Where("config_id = ?", filter.ConfigID)
+	if filter.Maturity != "" {
+		query = query.Where("maturity = ?", filter.Maturity)
+	}
+	if filter.Start > 0 {
+		query = query.Where("period_end > ?", filter.Start)
+	}
+	if filter.End > 0 {
+		query = query.Where("period_start < ?", filter.End)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var summaries []ReconcileAccountSummary
+	err := query.Order("period_start desc, id desc").Offset(filter.Offset).Limit(boundedReconcileLimit(filter.Limit)).Find(&summaries).Error
+	return summaries, total, err
+}
+
+func ListReconcileRuns(filter ReconcileResultFilter) ([]ReconcileRun, int64, error) {
+	query := DB.Model(&ReconcileRun{}).Where("config_id = ?", filter.ConfigID)
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
+	if filter.Maturity != "" {
+		query = query.Where("maturity = ?", filter.Maturity)
+	}
+	if filter.Start > 0 {
+		query = query.Where("period_end > ?", filter.Start)
+	}
+	if filter.End > 0 {
+		query = query.Where("period_start < ?", filter.End)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var runs []ReconcileRun
+	err := query.Order("created_at desc, id desc").Offset(filter.Offset).Limit(boundedReconcileLimit(filter.Limit)).Find(&runs).Error
+	return runs, total, err
+}
+
+func boundedReconcileLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	if limit > 200 {
+		return 200
+	}
+	return limit
+}
+
 type ReconcileItem struct {
 	ID                       int64           `json:"id" gorm:"primaryKey"`
 	ItemKey                  string          `json:"item_key" gorm:"type:varchar(64);uniqueIndex"`

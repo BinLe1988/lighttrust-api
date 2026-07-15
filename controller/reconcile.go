@@ -151,6 +151,77 @@ func DeleteReconcileConfig(c *gin.Context) {
 	common.ApiSuccess(c, nil)
 }
 
+func ListReconcileItems(c *gin.Context) {
+	filter, pageInfo, ok := reconcileResultFilter(c)
+	if !ok {
+		return
+	}
+	items, total, err := model.ListReconcileItems(filter)
+	writeReconcilePage(c, pageInfo, items, total, err)
+}
+
+func ListReconcileDailySummaries(c *gin.Context) {
+	filter, pageInfo, ok := reconcileResultFilter(c)
+	if !ok {
+		return
+	}
+	summaries, total, err := model.ListReconcileDailySummaries(filter)
+	writeReconcilePage(c, pageInfo, summaries, total, err)
+}
+
+func ListReconcileAccountSummaries(c *gin.Context) {
+	filter, pageInfo, ok := reconcileResultFilter(c)
+	if !ok {
+		return
+	}
+	summaries, total, err := model.ListReconcileAccountSummaries(filter)
+	writeReconcilePage(c, pageInfo, summaries, total, err)
+}
+
+func ListReconcileRuns(c *gin.Context) {
+	filter, pageInfo, ok := reconcileResultFilter(c)
+	if !ok {
+		return
+	}
+	runs, total, err := model.ListReconcileRuns(filter)
+	writeReconcilePage(c, pageInfo, runs, total, err)
+}
+
+func reconcileResultFilter(c *gin.Context) (model.ReconcileResultFilter, *common.PageInfo, bool) {
+	configID, err := strconv.ParseInt(c.Query("config_id"), 10, 64)
+	if err != nil || configID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "config_id is required"})
+		return model.ReconcileResultFilter{}, nil, false
+	}
+	pageInfo := common.GetPageQuery(c)
+	channelID, _ := strconv.Atoi(c.Query("channel_id"))
+	start, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	end, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	return model.ReconcileResultFilter{
+		ConfigID:  configID,
+		Status:    strings.TrimSpace(c.Query("status")),
+		Maturity:  strings.TrimSpace(c.Query("maturity")),
+		RequestID: strings.TrimSpace(c.Query("request_id")),
+		ModelID:   strings.TrimSpace(c.Query("model_id")),
+		Region:    strings.TrimSpace(c.Query("region")),
+		ChannelID: channelID,
+		Start:     start,
+		End:       end,
+		Offset:    pageInfo.GetStartIdx(),
+		Limit:     pageInfo.GetPageSize(),
+	}, pageInfo, true
+}
+
+func writeReconcilePage(c *gin.Context, pageInfo *common.PageInfo, items any, total int64, err error) {
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(items)
+	common.ApiSuccess(c, pageInfo)
+}
+
 func (request reconcileConfigRequest) toModel() (*model.ReconcileConfig, error) {
 	if request.Provider == "" {
 		request.Provider = reconcile.ProviderBedrock

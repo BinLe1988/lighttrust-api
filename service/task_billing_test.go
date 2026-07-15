@@ -53,6 +53,7 @@ func TestMain(m *testing.M) {
 		&model.ReconcileItem{},
 		&model.UpstreamCostBucket{},
 		&model.ReconcileDailySummary{},
+		&model.ReconcileAccountSummary{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

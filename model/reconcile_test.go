@@ -87,3 +87,43 @@ func TestUpsertUpstreamCostBucketPreservesDecimalPrecision(t *testing.T) {
 	assert.True(t, stored.UsageQuantity.Equal(record.UsageQuantity))
 	assert.True(t, stored.NetCost.Equal(updated.NetCost))
 }
+
+func TestListReconcileItemsFiltersByChannelAndPaginates(t *testing.T) {
+	require.NoError(t, DB.Exec("DELETE FROM reconcile_items").Error)
+	require.NoError(t, DB.Exec("DELETE FROM upstream_invocations").Error)
+	t.Cleanup(func() {
+		require.NoError(t, DB.Exec("DELETE FROM reconcile_items").Error)
+		require.NoError(t, DB.Exec("DELETE FROM upstream_invocations").Error)
+	})
+
+	invocation := &UpstreamInvocation{Provider: "bedrock", AccountID: "123456789012", Region: "us-east-1", RequestID: "aws-1", ChannelID: 7}
+	require.NoError(t, DB.Create(invocation).Error)
+	require.NoError(t, DB.Create(&ReconcileItem{ItemKey: "item-1", ConfigID: 11, UpstreamInvocationID: invocation.ID, Status: "matched", LastObservedAt: 10}).Error)
+	require.NoError(t, DB.Create(&ReconcileItem{ItemKey: "item-2", ConfigID: 11, Status: "missing_upstream", LastObservedAt: 20}).Error)
+
+	items, total, err := ListReconcileItems(ReconcileResultFilter{ConfigID: 11, ChannelID: 7, Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, items, 1)
+	assert.Equal(t, "item-1", items[0].ItemKey)
+}
+
+func TestUpsertAndListReconcileAccountSummary(t *testing.T) {
+	require.NoError(t, DB.Exec("DELETE FROM reconcile_account_summaries").Error)
+	t.Cleanup(func() { require.NoError(t, DB.Exec("DELETE FROM reconcile_account_summaries").Error) })
+
+	summary := &ReconcileAccountSummary{
+		SummaryKey: "account-1", ConfigID: 3, PeriodStart: 100, PeriodEnd: 200,
+		AccountID: "123456789012", NetCost: decimal.RequireFromString("1.25"), Currency: "USD", Maturity: "final",
+	}
+	require.NoError(t, UpsertReconcileAccountSummary(summary))
+	summary.ID = 0
+	summary.NetCost = decimal.RequireFromString("1.50")
+	require.NoError(t, UpsertReconcileAccountSummary(summary))
+
+	items, total, err := ListReconcileAccountSummaries(ReconcileResultFilter{ConfigID: 3, Start: 150, End: 250, Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, items, 1)
+	assert.True(t, items[0].NetCost.Equal(decimal.RequireFromString("1.50")))
+}

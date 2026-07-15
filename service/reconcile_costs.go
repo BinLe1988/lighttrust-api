@@ -190,3 +190,42 @@ func BuildReconcileDailySummaries(
 	}
 	return result, nil
 }
+
+func PersistReconcileAccountSummary(
+	configID int64,
+	accountID string,
+	period reconcile.Period,
+	costs []reconcile.CostBucket,
+	adjustments []reconcile.AccountAdjustment,
+	daily []reconcile.DailySummary,
+) (model.ReconcileAccountSummary, error) {
+	if configID <= 0 || accountID == "" {
+		return model.ReconcileAccountSummary{}, errors.New("reconciliation config id and account id are required")
+	}
+	if err := period.Validate(); err != nil {
+		return model.ReconcileAccountSummary{}, err
+	}
+	summary := reconcile.BuildAccountSummary(costs, adjustments, daily)
+	keySource := fmt.Sprintf("%d|%s|%d|%d", configID, accountID, period.Start.Unix(), period.End.Unix())
+	record := model.ReconcileAccountSummary{
+		SummaryKey:        fmt.Sprintf("%x", common.Sha256Raw([]byte(keySource))),
+		ConfigID:          configID,
+		PeriodStart:       period.Start.Unix(),
+		PeriodEnd:         period.End.Unix(),
+		AccountID:         accountID,
+		GrossCost:         summary.GrossCost,
+		Credits:           summary.Credits,
+		Refunds:           summary.Refunds,
+		TaxAndAdjustments: summary.TaxAndAdjustments,
+		NetCost:           summary.NetCost,
+		AttributedCost:    summary.AttributedCost,
+		UnattributedCost:  summary.UnattributedCost,
+		UnexplainedDelta:  summary.UnexplainedDelta,
+		Currency:          summary.Currency,
+		Maturity:          string(summary.Maturity),
+	}
+	if err := model.UpsertReconcileAccountSummary(&record); err != nil {
+		return model.ReconcileAccountSummary{}, err
+	}
+	return record, nil
+}

@@ -88,3 +88,21 @@ func TestIngestCostsAndBuildDailySummariesIdempotently(t *testing.T) {
 	require.NoError(t, model.DB.Model(&model.ReconcileDailySummary{}).Count(&summaryCount).Error)
 	assert.Equal(t, int64(1), summaryCount)
 }
+
+func TestPersistReconcileAccountSummaryIsIdempotent(t *testing.T) {
+	require.NoError(t, model.DB.Exec("DELETE FROM reconcile_account_summaries").Error)
+	t.Cleanup(func() { require.NoError(t, model.DB.Exec("DELETE FROM reconcile_account_summaries").Error) })
+	day := time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC)
+	period := reconcile.Period{Start: day, End: day.Add(24 * time.Hour)}
+	costs := []reconcile.CostBucket{{UnblendedCost: decimal.NewFromInt(2), Currency: "USD", Maturity: reconcile.MaturityFinal}}
+	daily := []reconcile.DailySummary{{Dimension: reconcile.DailyDimension{ChannelID: 42}, CURCost: decimal.RequireFromString("1.5"), Maturity: reconcile.MaturityFinal}}
+
+	for range 2 {
+		summary, err := PersistReconcileAccountSummary(1, "123456789012", period, costs, nil, daily)
+		require.NoError(t, err)
+		assert.True(t, summary.UnexplainedDelta.Equal(decimal.RequireFromString("0.5")))
+	}
+	var count int64
+	require.NoError(t, model.DB.Model(&model.ReconcileAccountSummary{}).Count(&count).Error)
+	assert.Equal(t, int64(1), count)
+}
