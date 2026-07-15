@@ -94,6 +94,10 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 		return nil, types.NewError(err, types.ErrorCodeChannelAwsClientError)
 	}
 	a.AwsClient = awsCli
+	a.AwsOptions, err = newBedrockInvokeOptions(c, info)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeChannelAwsClientError)
+	}
 
 	// 获取对应的AWS模型ID
 	awsModelId := getAwsModelID(info.UpstreamModelName)
@@ -226,11 +230,13 @@ func awsHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types
 	ctx, cancel := newAwsInvokeContext()
 	defer cancel()
 
-	awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))
+	awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput), a.AwsOptions...)
 	if err != nil {
+		captureBedrockRequestIDFromError(c, err)
 		statusCode := getAwsErrorStatusCode(err)
 		return types.NewOpenAIError(errors.Wrap(err, "InvokeModel"), types.ErrorCodeAwsInvokeError, statusCode), nil
 	}
+	captureBedrockRequestID(c, awsResp.ResultMetadata)
 
 	claudeInfo := &claude.ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),
@@ -256,11 +262,13 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 	ctx, cancel := newAwsInvokeContext()
 	defer cancel()
 
-	awsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput))
+	awsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput), a.AwsOptions...)
 	if err != nil {
+		captureBedrockRequestIDFromError(c, err)
 		statusCode := getAwsErrorStatusCode(err)
 		return types.NewOpenAIError(errors.Wrap(err, "InvokeModelWithResponseStream"), types.ErrorCodeAwsInvokeError, statusCode), nil
 	}
+	captureBedrockRequestID(c, awsResp.ResultMetadata)
 	stream := awsResp.GetStream()
 	defer stream.Close()
 
@@ -299,11 +307,13 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 	ctx, cancel := newAwsInvokeContext()
 	defer cancel()
 
-	awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))
+	awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput), a.AwsOptions...)
 	if err != nil {
+		captureBedrockRequestIDFromError(c, err)
 		statusCode := getAwsErrorStatusCode(err)
 		return types.NewOpenAIError(errors.Wrap(err, "InvokeModel"), types.ErrorCodeAwsInvokeError, statusCode), nil
 	}
+	captureBedrockRequestID(c, awsResp.ResultMetadata)
 
 	// 解析Nova响应
 	var novaResp struct {

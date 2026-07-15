@@ -30,6 +30,7 @@ type Adaptor struct {
 	AwsClient  *bedrockruntime.Client
 	AwsModelId string
 	AwsReq     any
+	AwsOptions []func(*bedrockruntime.Options)
 	IsNova     bool
 }
 
