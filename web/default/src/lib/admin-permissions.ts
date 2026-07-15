@@ -7,6 +7,7 @@ export type AdminCapabilities = AdminPermissionMatrix
 
 export const ADMIN_PERMISSION_RESOURCES = {
   CHANNEL: 'channel',
+  RECONCILE: 'reconcile',
 } as const
 
 export const ADMIN_PERMISSION_ACTIONS = {

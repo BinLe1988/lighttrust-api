@@ -1,0 +1,7 @@
+{
+  "External ID is write-only. Leave it blank during updates to keep the current value.": "External ID is write-only. Leave it blank during updates to keep the current value.",
+  "Persistent execution state and safe retry history.": "Persistent execution state and safe retry history.",
+  "Region to AWS channel IDs (JSON)": "Region to AWS channel IDs (JSON)",
+  "Select or create a reconciliation configuration first.": "Select or create a reconciliation configuration first.",
+  "You do not have permission to edit reconciliation configuration.": "You do not have permission to edit reconciliation configuration."
+}

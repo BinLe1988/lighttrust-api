@@ -27,6 +27,7 @@ import {
   ListTodo,
   MessageSquare,
   Radio,
+  Scale,
   ServerCog,
   Settings,
   Ticket,
@@ -36,8 +37,10 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
+import { hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -47,6 +50,8 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
+  const canReadReconciliation = hasPermission(user, 'reconcile', 'read')
 
   return {
     navGroups: [
@@ -124,6 +129,15 @@ export function useSidebarData(): SidebarData {
             url: '/channels',
             icon: Radio,
           },
+          ...(canReadReconciliation
+            ? [
+                {
+                  title: t('Reconciliation'),
+                  url: '/reconciliation',
+                  icon: Scale,
+                },
+              ]
+            : []),
           {
             title: t('Models'),
             url: '/models/metadata',
