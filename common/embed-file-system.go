@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-contrib/static"
 )
@@ -28,6 +29,10 @@ func (e *embedFileSystem) Open(name string) (http.File, error) {
 		// This will make sure the index page goes to NoRouter handler,
 		// which will use the replaced index bytes with analytic codes.
 		return nil, os.ErrNotExist
+	}
+	// http.StripPrefix removes the leading "/", but http.FS requires it.
+	if !strings.HasPrefix(name, "/") {
+		name = "/" + name
 	}
 	return e.FileSystem.Open(name)
 }

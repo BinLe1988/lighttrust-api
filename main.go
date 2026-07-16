@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -202,12 +203,37 @@ func main() {
 	InjectUmamiAnalytics()
 	InjectGoogleAnalytics()
 
+	// Serve root path and static assets directly from the embedded dist,
+	// bypassing any embed cache issues with the static.Serve middleware
+	if distFS, distErr := fs.Sub(buildFS, "web/default/dist"); distErr == nil {
+		server.GET("/", func(c *gin.Context) { c.Data(http.StatusOK, "text/html; charset=utf-8", indexPage) })
+		server.GET("/static/*filepath", func(c *gin.Context) {
+			http.ServeFileFS(c.Writer, c.Request, distFS, "static"+c.Param("filepath"))
+		})
+		server.GET("/favicon.ico", func(c *gin.Context) {
+			http.ServeFileFS(c.Writer, c.Request, distFS, "favicon.ico")
+		})
+		server.GET("/logo.png", func(c *gin.Context) {
+			http.ServeFileFS(c.Writer, c.Request, distFS, "logo.png")
+		})
+	}
+
 	// 设置路由
 	router.SetRouter(server, router.ThemeAssets{
 		DefaultBuildFS:   buildFS,
 		DefaultIndexPage: indexPage,
 		ClassicBuildFS:   classicBuildFS,
 		ClassicIndexPage: classicIndexPage,
+	})
+
+	// Catch-all: serve index.html for any unmatched client-side route (SPA fallback)
+	// This runs after SetRouter registered its own NoRoute, so ours takes precedence
+	server.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
+			controller.RelayNotFound(c)
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexPage)
 	})
 	var port = os.Getenv("PORT")
 	if port == "" {
