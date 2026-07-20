@@ -34,8 +34,8 @@ var performanceSetting = PerformanceSetting{
 	DiskCachePath:        "",   // 空表示使用系统临时目录
 
 	MonitorEnabled:         true,
-	MonitorCPUThreshold:    90,
-	MonitorMemoryThreshold: 90,
+	MonitorCPUThreshold:    95,
+	MonitorMemoryThreshold: 98,
 	MonitorDiskThreshold:   95,
 }
 

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -572,8 +573,24 @@ func updateOptionMap(key string, value string) (err error) {
 		// WaffoPayMethods is read directly from OptionMap via setting.GetWaffoPayMethods().
 		// The value is already stored in OptionMap at the top of this function (line: common.OptionMap[key] = value).
 		// No additional in-memory variable to update.
+	case "performance_setting":
+		handleConfigUpdateRawJson(key, value)
 	}
 	return err
+}
+
+// handleConfigUpdateRawJson 处理以 JSON 格式存储的分层配置更新
+func handleConfigUpdateRawJson(configName, jsonValue string) {
+	var data map[string]any
+	if err := common.Unmarshal([]byte(jsonValue), &data); err != nil {
+		return
+	}
+	// 将每个 JSON 字段以 flat key 方式更新到配置管理器
+	for k, v := range data {
+		handleConfigUpdate(configName+"."+k, fmt.Sprintf("%v", v))
+	}
+	// 额外触发同步
+	performance_setting.UpdateAndSync()
 }
 
 // handleConfigUpdate 处理分层配置更新，返回是否已处理

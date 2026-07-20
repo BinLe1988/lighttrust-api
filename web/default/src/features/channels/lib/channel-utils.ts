@@ -115,7 +115,10 @@ export function getChannelTypeIcon(type: number): string {
     21: 'OpenAI', // AI Proxy Library
     12: 'OpenAI', // API2GPT
     13: 'OpenAI', // AIGC2D
-    9: 'OpenAI', // AILS
+     9: 'OpenAI', // AILS
+
+     // AI Gateways
+     59: 'OpenAI', // LiteLLM
   }
 
   return TYPE_TO_ICON[type] || 'OpenAI'

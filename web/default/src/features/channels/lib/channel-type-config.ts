@@ -144,6 +144,20 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Models exposed by this channel',
     },
   },
+  59: {
+    id: 59,
+    name: CHANNEL_TYPES[59],
+    icon: 'openai',
+    defaultBaseUrl: 'http://localhost:4000',
+    hints: {
+      baseUrl: 'Default: http://localhost:4000',
+      key: 'LiteLLM Master Key (sk-...)',
+      models: 'Model names routed by LiteLLM',
+    },
+    validation: {
+      keyMinLength: 8,
+    },
+  },
 }
 
 /**
