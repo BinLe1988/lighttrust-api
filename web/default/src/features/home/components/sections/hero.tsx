@@ -133,6 +133,13 @@ export function Hero(props: HeroProps) {
             )}
           </p>
 
+          <p
+            className='landing-animate-fade-up mt-4 max-w-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 bg-clip-text text-lg font-semibold tracking-wide text-transparent opacity-0 md:text-xl'
+            style={{ animationDelay: '150ms' }}
+          >
+            合规安全 · 稳定省钱
+          </p>
+
           <div
             className='landing-animate-fade-up mt-8 flex flex-wrap items-center gap-3 opacity-0'
             style={{ animationDelay: '180ms' }}
