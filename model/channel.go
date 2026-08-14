@@ -563,7 +563,16 @@ func (channel *Channel) Update() error {
 		}
 	}
 	var err error
-	err = DB.Model(channel).Updates(channel).Error
+	// Explicitly select all user-editable columns so that zero-value fields (e.g. an emptied Key)
+	// are written to the database. GORM's Updates with a struct skips zero-value fields by default.
+	// System-maintained columns (id, created_time, test_time, response_time, balance,
+	// balance_updated_time, used_quota) are intentionally excluded.
+	err = DB.Model(channel).Select(
+		"type", "key", "open_ai_organization", "test_model", "status", "name", "weight",
+		"base_url", "other", "models", "group", "model_mapping", "status_code_mapping",
+		"priority", "auto_ban", "other_info", "tag", "setting", "param_override",
+		"header_override", "remark", "channel_info", "settings",
+	).Updates(channel).Error
 	if err != nil {
 		return err
 	}
