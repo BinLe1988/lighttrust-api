@@ -52,6 +52,7 @@ export function Hero(props: HeroProps) {
     (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
 
   const renderDocsButton = () => {
+    return null // 隐藏文档按钮
     const isExternal = docsUrl.startsWith('http')
     if (isExternal) {
       return (
@@ -191,7 +192,7 @@ export function Hero(props: HeroProps) {
                 )}
               </p>
             </div>
-            <div className='flex flex-wrap items-center gap-3'>
+            <div className='hidden flex-wrap items-center gap-3'>
               {/* Cherry Studio */}
               <a
                 href='https://cherry-ai.com'
