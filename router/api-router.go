@@ -227,6 +227,15 @@ func SetApiRouter(router *gin.Engine) {
 			ratioSyncRoute.GET("/channels", controller.GetSyncableChannels)
 			ratioSyncRoute.POST("/fetch", controller.FetchUpstreamRatios)
 		}
+		// 科研场景路由
+		researchRoute := apiRouter.Group("/research")
+		researchRoute.Use(middleware.UserAuth())
+		{
+			researchRoute.GET("/stages", controller.GetResearchStages)
+			researchRoute.GET("/stages/:stage", controller.GetResearchStage)
+			researchRoute.POST("/chat", controller.ResearchChat)
+		}
+
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)
 		tokenRoute := apiRouter.Group("/token")
