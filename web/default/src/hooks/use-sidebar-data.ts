@@ -60,6 +60,11 @@ export function useSidebarData(): SidebarData {
             icon: FlaskConical,
           },
           {
+            title: t('Research'),
+            url: '/research',
+            icon: FlaskConical,
+          },
+          {
             title: t('Chat'),
             icon: MessageSquare,
             type: 'chat-presets',

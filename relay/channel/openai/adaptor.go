@@ -118,7 +118,15 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	case constant.ChannelTypeAzure:
 		apiVersion := info.ApiVersion
 		if apiVersion == "" {
-			apiVersion = constant.AzureDefaultAPIVersion
+			// 从渠道 settings 中按模型获取 API 版本
+			if info.ChannelOtherSettings.AzureModelVersions != nil {
+				if v, ok := info.ChannelOtherSettings.AzureModelVersions[info.UpstreamModelName]; ok && v != "" {
+					apiVersion = v
+				}
+			}
+			if apiVersion == "" {
+				apiVersion = constant.AzureDefaultAPIVersion
+			}
 		}
 		// https://learn.microsoft.com/en-us/azure/cognitive-services/openai/chatgpt-quickstart?pivots=rest-api&tabs=command-line#rest-api
 		requestURL := strings.Split(info.RequestURLPath, "?")[0]

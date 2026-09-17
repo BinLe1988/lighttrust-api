@@ -210,8 +210,8 @@ const SiderBar = ({ onNavigate = () => {} }) => {
       },
       {
         text: t('科研工作台'),
-        itemKey: 'research',
-        to: '/research',
+        itemKey: 'playground',
+        to: '/console/research',
       },
       {
         text: t('聊天'),
