@@ -235,6 +235,12 @@ func SetApiRouter(router *gin.Engine) {
 			researchRoute.GET("/stages/:stage", controller.GetResearchStage)
 			researchRoute.POST("/chat", controller.ResearchChat)
 		}
+		// MCP 协议端点（供外部 Agent 通过 MCP 协议调用科研助手）
+		mcpRoute := apiRouter.Group("/mcp")
+		mcpRoute.Use(middleware.TokenAuthReadOnly())
+		{
+			mcpRoute.POST("", controller.MCPHandler)
+		}
 
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)

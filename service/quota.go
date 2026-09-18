@@ -391,6 +391,11 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	if relayInfo.IsPlayground {
 		return nil
 	}
+	// 当 TokenKey 为空时（如通过 UserAuth 而非 TokenAuth 认证的场景），
+	// 跳过 token 级别的额度预扣，仅依赖用户钱包额度控制
+	if relayInfo.TokenKey == "" {
+		return nil
+	}
 	//if relayInfo.TokenUnlimited {
 	//	return nil
 	//}

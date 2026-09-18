@@ -112,6 +112,12 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
 
+		// 检查是否有 research 场景的系统提示词（通过 research-* 模型名触发）
+		if researchPrompt := c.GetString("research_system_prompt"); researchPrompt != "" {
+			if info.ChannelSetting.SystemPrompt == "" {
+				info.ChannelSetting.SystemPrompt = researchPrompt
+			}
+		}
 		if info.ChannelSetting.SystemPrompt != "" {
 			// 如果有系统提示，则将其添加到请求中
 			request, ok := convertedRequest.(*dto.GeneralOpenAIRequest)

@@ -1,8 +1,12 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -143,7 +147,7 @@ func GetResearchStage(c *gin.Context) {
 // ResearchChat 科研场景对话接口
 func ResearchChat(c *gin.Context) {
 	var req struct {
-		Stage   string    `json:"stage" binding:"required"`
+		Stage    string `json:"stage" binding:"required"`
 		Messages []struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
@@ -175,11 +179,6 @@ func ResearchChat(c *gin.Context) {
 		return
 	}
 
-	// 将阶段配置写入上下文，供 relay 模块使用
-	c.Set("research_stage", stageConfig.Key)
-	c.Set("research_strategy", stageConfig.Strategy)
-	c.Set("research_system_prompt", stageConfig.SystemPrompt)
-
 	// 在消息列表前插入系统提示词
 	var messages []map[string]string
 	messages = append(messages, map[string]string{
@@ -193,17 +192,38 @@ func ResearchChat(c *gin.Context) {
 		})
 	}
 
-	// 使用通用 relay 处理
-	c.Set("messages", messages)
-	c.Set("stream", req.Stream)
+	// 根据科研阶段选择最合适的模型
+	modelName := "gpt-5.5-1" // 默认模型
+	switch req.Stage {
+	case "coding", "analysis", "experiment":
+		modelName = "gpt-5.6-luna-1" // 编码能力强的模型
+	case "writing", "review":
+		modelName = "gpt-5.5-1" // 文本生成能力强的模型
+	case "literature":
+		modelName = "gpt-5.2-1" // 检索和总结能力强的模型
+	}
+
+	// 构建标准的 OpenAI chat completions 请求体
+	openaiReq := map[string]interface{}{
+		"model":    modelName,
+		"messages": messages,
+		"stream":   req.Stream,
+	}
+
+	// 将请求体重新写入 c.Request.Body，供 Relay 函数读取
+	bodyBytes, _ := json.Marshal(openaiReq)
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	c.Request.ContentLength = int64(len(bodyBytes))
+
+	// 将模型名和阶段配置写入上下文，供 relay 模块使用
+	c.Set("original_model", modelName)
+	c.Set("research_stage", stageConfig.Key)
+	c.Set("research_strategy", stageConfig.Strategy)
+
+	// 将请求路径修改为标准 OpenAI chat completions 路径，
+	// 确保 relay 流程中的 URL 拼接逻辑（特别是 Azure 渠道）能正确工作
+	c.Request.URL.Path = "/v1/chat/completions"
 
 	// 调用现有的 relay 逻辑
-	RelayResearch(c)
-}
-
-// RelayResearch 科研场景专用 relay
-func RelayResearch(c *gin.Context) {
-	// 复用现有的 relay 基础设施
-	// 通过 context 传递科研阶段配置
-	Relay(c, "openai")
+	Relay(c, types.RelayFormatOpenAI)
 }

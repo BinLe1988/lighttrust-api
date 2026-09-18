@@ -25,6 +25,10 @@ const (
 
 var defaultModelRatio = map[string]float64{
 	//"midjourney":                50,
+	// 科研助手模型 - 倍率 1.0，1 额度 ≈ 0.01 元人民币
+	"gpt-5.5-1":                                 1.0,
+	"gpt-5.6-luna-1":                            1.0,
+	"gpt-5.2-1":                                 1.0,
 	"gpt-4-gizmo-*":                             15,
 	"gpt-4o-gizmo-*":                            2.5,
 	"gpt-4-all":                                 15,
