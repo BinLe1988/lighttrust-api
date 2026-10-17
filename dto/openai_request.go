@@ -220,7 +220,7 @@ func IsOpenAIReasoningOModel(modelName string) bool {
 }
 
 func IsOpenAIGPT5Model(modelName string) bool {
-	return strings.HasPrefix(modelName, "gpt-5")
+	return strings.HasPrefix(modelName, "gpt-5") || strings.HasPrefix(modelName, "gpt-6")
 }
 
 func (r *GeneralOpenAIRequest) GetSystemRoleName() string {

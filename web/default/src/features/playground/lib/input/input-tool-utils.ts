@@ -47,9 +47,22 @@ export const ATTACHMENT_ACTIONS = [
 ] satisfies AttachmentAction[]
 
 export function getAttachmentActionNotice(action: string): InputToolNotice {
-  return {
-    description: action,
-    title: 'Feature in development',
+  switch (action) {
+    case 'upload-photo':
+      return {
+        title: 'Upload photo',
+        description: 'Select an image to upload',
+      }
+    case 'upload-file':
+      return {
+        title: 'Feature in development',
+        description: action,
+      }
+    default:
+      return {
+        title: 'Feature in development',
+        description: action,
+      }
   }
 }
 
@@ -57,4 +70,70 @@ export function getSearchActionNotice(): InputToolNotice {
   return {
     title: 'Search feature in development',
   }
+}
+
+/**
+ * Upload an image file to the server
+ * @returns The uploaded image URL, or null if failed
+ */
+export async function uploadImage(file: File): Promise<string | null> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  try {
+    const response = await fetch('/pg/upload', {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null)
+      throw new Error(errorData?.message || `Upload failed with status ${response.status}`)
+    }
+
+    const data = await response.json()
+    if (!data.success || !data.data?.url) {
+      throw new Error(data.message || 'Upload failed')
+    }
+
+    return data.data.url
+  } catch (error) {
+    console.error('Image upload failed:', error)
+    throw error
+  }
+}
+
+/**
+ * Open file picker for images and upload the selected file
+ * @returns The uploaded image URL, or null if cancelled or failed
+ */
+export function pickAndUploadImage(): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/jpeg,image/png,image/gif,image/webp,image/bmp,image/svg+xml'
+    input.multiple = false
+
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) {
+        resolve(null)
+        return
+      }
+
+      try {
+        const url = await uploadImage(file)
+        resolve(url)
+      } catch (error) {
+        reject(error)
+      }
+    }
+
+    input.oncancel = () => {
+      resolve(null)
+    }
+
+    input.click()
+  })
 }

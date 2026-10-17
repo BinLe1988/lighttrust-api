@@ -42,6 +42,7 @@ import {
   ATTACHMENT_ACTIONS,
   getAttachmentActionNotice,
   getSearchActionNotice,
+  pickAndUploadImage,
 } from '../../lib'
 import type { ParameterEnabled, PlaygroundConfig } from '../../types'
 import { PlaygroundParameterPanel } from './playground-parameter-panel'
@@ -74,7 +75,23 @@ export function PlaygroundInputTools({
   const { t } = useTranslation()
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
 
-  const handleFileAction = (action: string) => {
+  const handleFileAction = async (action: string) => {
+    if (action === 'upload-photo') {
+      try {
+        const imageUrl = await pickAndUploadImage()
+        if (imageUrl) {
+          toast.success(t('Image uploaded successfully'), {
+            description: imageUrl,
+          })
+        }
+      } catch (error) {
+        toast.error(t('Upload failed'), {
+          description: error instanceof Error ? error.message : 'Unknown error',
+        })
+      }
+      return
+    }
+
     const notice = getAttachmentActionNotice(action)
     toast.info(t(notice.title), {
       description: notice.description,

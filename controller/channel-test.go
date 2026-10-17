@@ -245,6 +245,8 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 
 	info.IsChannelTest = true
+	// 设置 ChannelOtherSettings 到上下文，确保测试接口能读取 azure_model_versions 等配置
+	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, channel.GetOtherSettings())
 	info.InitChannelMeta(c)
 
 	err = attachTestBillingRequestInput(info, request)

@@ -1046,6 +1046,26 @@ func UpdateChannel(c *gin.Context) {
 			// 覆盖模式：直接使用新密钥（默认行为，不需要特殊处理）
 		}
 	}
+	// 保护空字段：如果请求中未传某字段（空字符串），从原始数据恢复，避免覆盖数据库
+	if channel.Name == "" {
+		channel.Name = originChannel.Name
+	}
+	if channel.Models == "" {
+		channel.Models = originChannel.Models
+	}
+	if channel.Group == "" {
+		channel.Group = originChannel.Group
+	}
+	if channel.OtherInfo == "" {
+		channel.OtherInfo = originChannel.OtherInfo
+	}
+	if channel.OtherSettings == "" {
+		channel.OtherSettings = originChannel.OtherSettings
+	}
+	// Key 字段特殊处理：仅在非多key模式下且为空时恢复
+	if channel.Key == "" && !channel.ChannelInfo.IsMultiKey {
+		channel.Key = originChannel.Key
+	}
 	err = channel.Update()
 	if err != nil {
 		common.ApiError(c, err)
