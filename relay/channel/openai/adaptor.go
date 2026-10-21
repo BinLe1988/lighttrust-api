@@ -618,11 +618,6 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	if info != nil && request.Reasoning != nil && request.Reasoning.Effort != "" {
 		info.ReasoningEffort = request.Reasoning.Effort
 	}
-	// Azure Chat Completions 不识别 max_output_tokens，需透传为 max_completion_tokens
-	if info != nil && info.ChannelType == constant.ChannelTypeAzure && request.MaxOutputTokens != nil {
-		request.MaxCompletionTokens = request.MaxOutputTokens
-		request.MaxOutputTokens = nil
-	}
 	return request, nil
 }
 
